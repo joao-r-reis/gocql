@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"net"
 	"strconv"
 	"strings"
@@ -673,17 +674,29 @@ func (r *ringDescriber) refreshRing() error {
 		return err
 	}
 
+	curRing := map[string]string{}
+	for _, h := range hosts {
+		curRing[h.hostId] = h.connectAddress.String()
+	}
+	prevRing := map[string]string{}
 	prevHosts := r.session.ring.currentHosts()
+	for _, h := range prevHosts {
+		prevRing[h.hostId] = h.connectAddress.String()
+	}
+	log.Infof("[ringDescriber] refreshRing - previous hosts: %v, new hosts: %v")
 
 	// TODO: move this to session
 	for _, h := range hosts {
 		if r.session.cfg.filterHost(h) {
+			log.Infof("[ringDescriber] HOST FILTERED %v - %v", h.connectAddress, h.hostId)
 			continue
 		}
 
 		if host, ok := r.session.ring.addHostIfMissing(h); !ok {
+			log.Infof("[ringDescriber] HOST ADDED %v - %v", h.connectAddress, h.hostId)
 			r.session.startPoolFill(h)
 		} else {
+			log.Infof("[ringDescriber] HOST EXISTS %v - %v", h.connectAddress, h.hostId)
 			host.update(h)
 		}
 		delete(prevHosts, h.HostID())

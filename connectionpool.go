@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -164,6 +165,7 @@ func (p *policyConnPool) SetHosts(hosts []*HostInfo) {
 	createCount := 0
 	for _, host := range hosts {
 		if !host.IsUp() {
+			log.Infof("[policyConnPool] SetHosts - not creating pool for host because it is down %v - %v", host.connectAddress, host.hostId)
 			// don't create a connection pool for a down host
 			continue
 		}
@@ -176,6 +178,7 @@ func (p *policyConnPool) SetHosts(hosts []*HostInfo) {
 
 		createCount++
 		go func(host *HostInfo) {
+			log.Infof("[policyConnPool] SetHosts - create pool host %v - %v", host.connectAddress, host.hostId)
 			// create a connection pool for the host
 			pools <- newHostConnPool(
 				p.session,
@@ -199,6 +202,7 @@ func (p *policyConnPool) SetHosts(hosts []*HostInfo) {
 
 	for addr := range toRemove {
 		pool := p.hostConnPools[addr]
+		log.Infof("[policyConnPool] SetHosts - removing pool host %v - %v", pool.host.connectAddress, pool.host.hostId)
 		delete(p.hostConnPools, addr)
 		go pool.Close()
 	}
@@ -235,6 +239,7 @@ func (p *policyConnPool) Close() {
 }
 
 func (p *policyConnPool) addHost(host *HostInfo) {
+	log.Infof("[policyConnPool] add host - host %v - %v", host.connectAddress, host.hostId)
 	hostID := host.HostID()
 	p.mu.Lock()
 	pool, ok := p.hostConnPools[hostID]
@@ -255,6 +260,7 @@ func (p *policyConnPool) addHost(host *HostInfo) {
 }
 
 func (p *policyConnPool) removeHost(hostID string) {
+	log.Infof("[policyConnPool] remove host - host %v", hostID)
 	p.mu.Lock()
 	pool, ok := p.hostConnPools[hostID]
 	if !ok {
@@ -360,6 +366,7 @@ func (pool *hostConnPool) Size() int {
 
 // Close the connection pool
 func (pool *hostConnPool) Close() {
+	log.Infof("[hostConnPool] close - host %v - %v", pool.host.connectAddress, pool.host.hostId)
 	pool.mu.Lock()
 
 	if pool.closed {
@@ -391,6 +398,7 @@ func (pool *hostConnPool) Close() {
 
 // Fill the connection pool
 func (pool *hostConnPool) fill() {
+	log.Infof("[hostConnPool] fill - host %v - %v", pool.host.connectAddress, pool.host.hostId)
 	pool.mu.RLock()
 	// avoid filling a closed pool, or concurrent filling
 	if pool.closed || pool.filling {
@@ -543,22 +551,27 @@ func (pool *hostConnPool) connect() (err error) {
 	var conn *Conn
 	reconnectionPolicy := pool.session.cfg.ReconnectionPolicy
 	for i := 0; i < reconnectionPolicy.GetMaxRetries(); i++ {
+		log.Infof("[hostConnPool] connecting host %v - %v", pool.host.connectAddress, pool.host.hostId)
 		conn, err = pool.session.connect(pool.session.ctx, pool.host, pool)
 		if err == nil {
+			log.Infof("[hostConnPool] SUCCESS connecting host %v - %v", pool.host.connectAddress, pool.host.hostId)
 			break
 		}
 		if opErr, isOpErr := err.(*net.OpError); isOpErr {
 			// if the error is not a temporary error (ex: network unreachable) don't
 			//  retry
 			if !opErr.Temporary() {
+				log.Warnf("[hostConnPool] FATAL FAILED connecting host %v - %v: %v", pool.host.connectAddress, pool.host.hostId, err.Error())
 				break
 			}
 		}
+		interval := reconnectionPolicy.GetInterval(i)
+		log.Warnf("[hostConnPool] TEMPORARY FAILED connecting host %v - %v: %v. Sleeping %v", pool.host.connectAddress, pool.host.hostId, err.Error(), interval.String())
 		if gocqlDebug {
 			pool.logger.Printf("gocql: connection failed %q: %v, reconnecting with %T\n",
 				pool.host.ConnectAddress(), err, reconnectionPolicy)
 		}
-		time.Sleep(reconnectionPolicy.GetInterval(i))
+		time.Sleep(interval)
 	}
 
 	if err != nil {
@@ -594,6 +607,7 @@ func (pool *hostConnPool) HandleError(conn *Conn, err error, closed bool) {
 		return
 	}
 
+	log.Warnf("[hostConnPool] closing connection %v (host %v - %v): %v", conn.addr, pool.host.connectAddress, pool.host.hostId, err.Error())
 	// TODO: track the number of errors per host and detect when a host is dead,
 	// then also have something which can detect when a host comes back.
 	pool.mu.Lock()

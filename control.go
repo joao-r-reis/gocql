@@ -5,6 +5,7 @@ import (
 	crand "crypto/rand"
 	"errors"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"math/rand"
 	"net"
 	"os"
@@ -204,6 +205,7 @@ func (c *controlConn) discoverProtocol(hosts []*HostInfo) (int, error) {
 
 	var err error
 	for _, host := range hosts {
+		log.Infof("[discoverProtocol] connecting to host %v - %v", host.connectAddress, host.hostId)
 		var conn *Conn
 		conn, err = c.session.dial(c.session.ctx, host, &connCfg, handler)
 		if conn != nil {
@@ -363,15 +365,22 @@ func (c *controlConn) reconnect(refreshring bool) {
 	var conn *Conn
 	var err error
 	for _, host := range hosts {
+		log.Infof("[controlConn reconnect] reconnecting %v - %v", host.connectAddress, host.hostId)
 		conn, err = c.session.connect(c.session.ctx, host, c)
 		if err != nil {
+			log.Warnf("[controlConn reconnect] FAILED reconnecting %v - %v: %v", host.connectAddress, host.hostId, err.Error())
 			c.session.logger.Printf("gocql: unable to dial control conn %v:%v: %v\n", host.ConnectAddress(), host.Port(), err)
 			continue
 		}
+		log.Infof("[controlConn reconnect] SUCCESS reconnecting %v - %v. Setting up.", host.connectAddress, host.hostId)
+
 		err = c.setupConn(conn)
 		if err == nil {
 			break
+		} else {
+			log.Infof("[controlConn reconnect] FAILED setting up %v - %v: %v", host.connectAddress, host.hostId, err.Error())
 		}
+		log.Infof("[controlConn reconnect] SUCCESS setting up %v - %v", host.connectAddress, host.hostId)
 		c.session.logger.Printf("gocql: unable setup control conn %v:%v: %v\n", host.ConnectAddress(), host.Port(), err)
 		conn.Close()
 		conn = nil
@@ -383,6 +392,13 @@ func (c *controlConn) reconnect(refreshring bool) {
 
 	if refreshring {
 		c.session.hostSource.refreshRing()
+		hosts := map[string]string{}
+		for key, value := range c.session.ring.hosts {
+			hosts[key] = fmt.Sprintf("%v - %v", value.connectAddress.String(), value.hostId)
+		}
+		log.Infof("[controlConn reconnect] Refreshed ring: %v", hosts)
+	} else {
+		log.Info("[controlConn reconnect] not refreshing ring.")
 	}
 }
 
@@ -391,6 +407,7 @@ func (c *controlConn) HandleError(conn *Conn, err error, closed bool) {
 		return
 	}
 
+	log.Infof("[controlConn] HandleError %v: %v", conn.addr, err)
 	oldConn := c.getConn()
 
 	// If connection has long gone, and not been attempted for awhile,

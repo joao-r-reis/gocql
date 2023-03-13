@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"io"
 	"io/ioutil"
 	"net"
@@ -233,10 +234,13 @@ func (s *Session) dial(ctx context.Context, host *HostInfo, connConfig *ConnConf
 //
 // dialWithoutObserver does not notify the connection observer, so you most probably want to call dial() instead.
 func (s *Session) dialWithoutObserver(ctx context.Context, host *HostInfo, cfg *ConnConfig, errorHandler ConnErrorHandler) (*Conn, error) {
+	log.Infof("[dialWithoutObserver] dialing host %v - %v", host.connectAddress, host.hostId)
 	dialedHost, err := cfg.HostDialer.DialHost(ctx, host)
 	if err != nil {
+		log.Warnf("[dialWithoutObserver] FAILED dialing host %v - %v: %v", host.connectAddress, host.hostId, err.Error())
 		return nil, err
 	}
+	log.Infof("[dialWithoutObserver] SUCCESS dialing host %v - %v", host.connectAddress, host.hostId)
 
 	writeTimeout := cfg.Timeout
 	if cfg.WriteTimeout > 0 {
@@ -271,11 +275,14 @@ func (s *Session) dialWithoutObserver(ctx context.Context, host *HostInfo, cfg *
 		writeTimeout:   writeTimeout,
 	}
 
+	log.Infof("[dialWithoutObserver] init connection host %v - %v", host.connectAddress, host.hostId)
 	if err := c.init(ctx, dialedHost); err != nil {
+		log.Warnf("[dialWithoutObserver] FAILED init connection host %v - %v: %v", host.connectAddress, host.hostId, err.Error())
 		cancel()
 		c.Close()
 		return nil, err
 	}
+	log.Infof("[dialWithoutObserver] SUCCESS init connection host %v - %v", host.connectAddress, host.hostId)
 
 	return c, nil
 }
@@ -382,8 +389,10 @@ func (s *startupCoordinator) setupConn(ctx context.Context) error {
 	select {
 	case err := <-startupErr:
 		if err != nil {
+			log.Warnf("[startupCoordinator] authenticate FAILED %v: %v", s.conn.addr, err.Error())
 			return err
 		}
+		log.Infof("[startupCoordinator] authenticate success %v", s.conn.addr)
 	case <-ctx.Done():
 		return errors.New("gocql: no response to connection startup within timeout")
 	}
@@ -440,6 +449,7 @@ func (s *startupCoordinator) startup(ctx context.Context, supported map[string][
 		}
 	}
 
+	log.Infof("[startupCoordinator] sending startup to %v", s.conn.addr)
 	frame, err := s.write(ctx, &writeStartupFrame{opts: m})
 	if err != nil {
 		return err
@@ -447,10 +457,13 @@ func (s *startupCoordinator) startup(ctx context.Context, supported map[string][
 
 	switch v := frame.(type) {
 	case error:
+		log.Infof("[startupCoordinator] received ERROR %v from %v", v.Error(), s.conn.addr)
 		return v
 	case *readyFrame:
+		log.Infof("[startupCoordinator] received READY from %v", s.conn.addr)
 		return nil
 	case *authenticateFrame:
+		log.Infof("[startupCoordinator] authenticating %v", s.conn.addr)
 		return s.authenticateHandshake(ctx, v)
 	default:
 		return NewErrProtocol("Unknown type of response to startup frame: %s", v)

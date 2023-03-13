@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"io"
 	"net"
 	"strings"
@@ -522,6 +523,7 @@ func (s *Session) executeQuery(qry *Query) (it *Iter) {
 }
 
 func (s *Session) removeHost(h *HostInfo) {
+	log.Infof("[Session] remove host %v: %v", h.connectAddress, h.hostId)
 	s.policy.RemoveHost(h)
 	hostID := h.HostID()
 	s.pool.removeHost(hostID)

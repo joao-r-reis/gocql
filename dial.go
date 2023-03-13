@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"net"
 	"strings"
 )
@@ -36,6 +37,7 @@ type defaultHostDialer struct {
 }
 
 func (hd *defaultHostDialer) DialHost(ctx context.Context, host *HostInfo) (*DialedHost, error) {
+	log.Infof("[defaultHostDialer] default host dialing %v - %v", host.connectAddress, host.hostId)
 	ip := host.ConnectAddress()
 	port := host.Port()
 
