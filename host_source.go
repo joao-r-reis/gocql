@@ -683,7 +683,7 @@ func (r *ringDescriber) refreshRing() error {
 	for _, h := range prevHosts {
 		prevRing[h.hostId] = h.connectAddress.String()
 	}
-	log.Infof("[ringDescriber] refreshRing - previous hosts: %v, new hosts: %v")
+	log.Infof("[ringDescriber] refreshRing - previous hosts: %v, new hosts: %v", prevRing, curRing)
 
 	// TODO: move this to session
 	for _, h := range hosts {

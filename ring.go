@@ -2,6 +2,7 @@ package gocql
 
 import (
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"sync"
 	"sync/atomic"
 )
@@ -74,7 +75,11 @@ func (r *ring) addOrUpdate(host *HostInfo) *HostInfo {
 	if existingHost, ok := r.addHostIfMissing(host); ok {
 		existingHost.update(host)
 		host = existingHost
+		log.Infof("[ring] HOST UPDATED %v - %v", host.connectAddress, host.hostId)
+	} else {
+		log.Infof("[ring] HOST ADDED %v - %v", host.connectAddress, host.hostId)
 	}
+
 	return host
 }
 

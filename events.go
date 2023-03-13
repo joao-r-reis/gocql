@@ -1,6 +1,7 @@
 package gocql
 
 import (
+	log "github.com/sirupsen/logrus"
 	"net"
 	"sync"
 	"time"
@@ -209,6 +210,7 @@ func (s *Session) addNewNode(hostID UUID) {
 	hostInfo = s.ring.addOrUpdate(hostInfo)
 
 	if !s.cfg.filterHost(hostInfo) {
+		log.Infof("[Session] HOST POOL FILL %v - %v", hostInfo.connectAddress, hostInfo.hostId)
 		s.startPoolFill(hostInfo)
 	}
 
