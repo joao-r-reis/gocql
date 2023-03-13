@@ -183,45 +183,6 @@ func (s *Session) handleNodeEvent(frames []frame) {
 	}
 }
 
-func (s *Session) handleNewNode(ip net.IP, port int) {
-	if gocqlDebug {
-		s.logger.Printf("gocql: Session.handleNewNode: %s:%d\n", ip.String(), port)
-	}
-
-	host, ok := s.ring.getHostByIP(ip.String())
-	if ok && host.IsUp() {
-		return
-	}
-
-	if err := s.hostSource.refreshRing(); err != nil && gocqlDebug {
-		s.logger.Printf("gocql: Session.handleNewNode: failed to refresh ring: %w\n", err.Error())
-	}
-}
-
-func (s *Session) handleRemovedNode(ip net.IP, port int) {
-	if gocqlDebug {
-		s.logger.Printf("gocql: Session.handleRemovedNode: %s:%d\n", ip.String(), port)
-	}
-
-	// we remove all nodes but only add ones which pass the filter
-	host, ok := s.ring.getHostByIP(ip.String())
-	if ok {
-		hostID := host.HostID()
-		s.ring.removeHost(hostID)
-
-		host.setState(NodeDown)
-		if !s.cfg.filterHost(host) {
-			s.policy.RemoveHost(host)
-			s.pool.removeHost(hostID)
-		}
-
-	}
-
-	if err := s.hostSource.refreshRing(); err != nil && gocqlDebug {
-		s.logger.Println("failed to refresh ring:", err)
-	}
-}
-
 func (s *Session) handleNodeUp(eventIp net.IP, eventPort int) {
 	if gocqlDebug {
 		s.logger.Printf("gocql: Session.handleNodeUp: %s:%d\n", eventIp.String(), eventPort)
