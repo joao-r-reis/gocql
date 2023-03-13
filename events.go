@@ -1,7 +1,6 @@
 package gocql
 
 import (
-	log "github.com/sirupsen/logrus"
 	"net"
 	"sync"
 	"time"
@@ -137,30 +136,34 @@ func (s *Session) handleNodeEvent(frames []frame) {
 		port   int
 	}
 
-	events := make(map[string]*nodeEvent)
+	topologyEventReceived := false
+	statusEvents := make(map[string]*nodeEvent)
 
 	for _, frame := range frames {
 		// TODO: can we be sure the order of events in the buffer is correct?
 		switch f := frame.(type) {
 		case *topologyChangeEventFrame:
-			event, ok := events[f.host.String()]
-			if !ok {
-				event = &nodeEvent{change: f.change, host: f.host, port: f.port}
-				events[f.host.String()] = event
-			}
-			event.change = f.change
-
+			topologyEventReceived = true
 		case *statusChangeEventFrame:
-			event, ok := events[f.host.String()]
+			event, ok := statusEvents[f.host.String()]
 			if !ok {
 				event = &nodeEvent{change: f.change, host: f.host, port: f.port}
-				events[f.host.String()] = event
+				statusEvents[f.host.String()] = event
 			}
 			event.change = f.change
 		}
 	}
 
-	for _, f := range events {
+	if topologyEventReceived && !s.cfg.Events.DisableTopologyEvents {
+		// maybe add MOVED_NODE handling
+		// java-driver handles this, not mentioned in the spec
+		// TODO(zariel): refresh token map
+		if err := s.hostSource.refreshRing(); err != nil && gocqlDebug {
+			s.logger.Printf("gocql: Session.handleNewNode: failed to refresh ring: %w\n", err.Error())
+		}
+	}
+
+	for _, f := range statusEvents {
 		if gocqlDebug {
 			s.logger.Printf("gocql: dispatching event: %+v\n", f)
 		}
@@ -168,17 +171,6 @@ func (s *Session) handleNodeEvent(frames []frame) {
 		// ignore events we received if they were disabled
 		// see https://github.com/gocql/gocql/issues/1591
 		switch f.change {
-		case "NEW_NODE":
-			if !s.cfg.Events.DisableTopologyEvents {
-				s.handleNewNode(f.host, f.port)
-			}
-		case "REMOVED_NODE":
-			if !s.cfg.Events.DisableTopologyEvents {
-				s.handleRemovedNode(f.host, f.port)
-			}
-		case "MOVED_NODE":
-		// java-driver handles this, not mentioned in the spec
-		// TODO(zariel): refresh token map
 		case "UP":
 			if !s.cfg.Events.DisableNodeStatusEvents {
 				s.handleNodeUp(f.host, f.port)
@@ -210,7 +202,6 @@ func (s *Session) addNewNode(hostID UUID) {
 	hostInfo = s.ring.addOrUpdate(hostInfo)
 
 	if !s.cfg.filterHost(hostInfo) {
-		log.Infof("[Session] HOST POOL FILL %v - %v", hostInfo.connectAddress, hostInfo.hostId)
 		s.startPoolFill(hostInfo)
 	}
 

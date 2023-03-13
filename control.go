@@ -99,7 +99,7 @@ func (c *controlConn) heartBeat() {
 	reconn:
 		// try to connect a bit faster
 		sleepTime = 1 * time.Second
-		c.reconnect(true)
+		c.reconnect()
 		continue
 	}
 }
@@ -337,7 +337,7 @@ func (c *controlConn) registerEvents(conn *Conn) error {
 	return nil
 }
 
-func (c *controlConn) reconnect(refreshring bool) {
+func (c *controlConn) reconnect() {
 	if atomic.LoadInt32(&c.state) == controlConnClosing {
 		return
 	}
@@ -390,16 +390,8 @@ func (c *controlConn) reconnect(refreshring bool) {
 		return
 	}
 
-	if refreshring {
-		c.session.hostSource.refreshRing()
-		hosts := map[string]string{}
-		for key, value := range c.session.ring.hosts {
-			hosts[key] = fmt.Sprintf("%v - %v", value.connectAddress.String(), value.hostId)
-		}
-		log.Infof("[controlConn reconnect] Refreshed ring: %v", hosts)
-	} else {
-		log.Info("[controlConn reconnect] not refreshing ring.")
-	}
+	c.session.hostSource.refreshRing()
+	log.Infof("[controlConn reconnect] Refreshed ring: %v", hosts)
 }
 
 func (c *controlConn) HandleError(conn *Conn, err error, closed bool) {
@@ -416,7 +408,7 @@ func (c *controlConn) HandleError(conn *Conn, err error, closed bool) {
 		return
 	}
 
-	c.reconnect(false)
+	c.reconnect()
 }
 
 func (c *controlConn) getConn() *connHost {
@@ -450,7 +442,7 @@ func (c *controlConn) withConnHost(fn func(*connHost) *Iter) *Iter {
 
 			connectAttempts++
 
-			c.reconnect(false)
+			c.reconnect()
 			continue
 		}
 
