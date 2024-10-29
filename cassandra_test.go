@@ -3515,6 +3515,15 @@ func TestPrepareExecuteMetadataChangedFlag(t *testing.T) {
 	require.NotEqual(t, preparedStatementBeforeTableAltering.resultMetadataID, preparedStatementAfterTableAltering.resultMetadataID)
 	require.NotEqual(t, preparedStatementBeforeTableAltering.response, preparedStatementAfterTableAltering.response)
 
+	// FORCE SEND OLD RESULT METADATA ID (https://issues.apache.org/jira/browse/CASSANDRA-20028)
+	closedCh := make(chan struct{})
+	close(closedCh)
+	session.stmtsLRU.add(stmtCacheKey, &inflightPrepare{
+		done:             closedCh,
+		err:              nil,
+		preparedStatment: preparedStatementBeforeTableAltering,
+	})
+
 	// Executing prepared stmt and expecting that C* won't return
 	// Metadata_changed because the table is not being changed.
 	// Running query with timeout to ensure there is no deadlocks.
@@ -3532,11 +3541,31 @@ func TestPrepareExecuteMetadataChangedFlag(t *testing.T) {
 		}
 		t.Fatal(err)
 	}
+	require.Len(t, row, 2, "Expected to retrieve both columns")
+	inflight, _ = session.stmtsLRU.get(stmtCacheKey)
+	preparedStatementAfterTableAltering2 := inflight.preparedStatment
+	require.NotEqual(t, preparedStatementBeforeTableAltering.resultMetadataID, preparedStatementAfterTableAltering2.resultMetadataID)
+	require.NotEqual(t, preparedStatementBeforeTableAltering.response, preparedStatementAfterTableAltering2.response)
+
+	require.Equal(t, preparedStatementAfterTableAltering.resultMetadataID, preparedStatementAfterTableAltering2.resultMetadataID)
+	require.NotEqual(t, preparedStatementAfterTableAltering.response, preparedStatementAfterTableAltering2.response) // METADATA_CHANGED flag
+	require.True(t, preparedStatementAfterTableAltering2.response.flags&flagMetaDataChanged != 0)
+
+	queryAfterTableAltering3 := session.Query(selectStmt).WithContext(ctx)
+	queryAfterTableAltering3.conn = conn
+	row = make(map[string]interface{})
+	err = queryAfterTableAltering2.MapScan(row)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal("It is likely failed due deadlock")
+		}
+		t.Fatal(err)
+	}
 
 	// Ensuring metadata of prepared stmt is not changed
 	require.Len(t, row, 2, "Expected to retrieve both columns")
 	inflight, _ = session.stmtsLRU.get(stmtCacheKey)
-	preparedStatementAfterTableAltering2 := inflight.preparedStatment
-	require.Equal(t, preparedStatementAfterTableAltering.resultMetadataID, preparedStatementAfterTableAltering2.resultMetadataID)
-	require.Equal(t, preparedStatementAfterTableAltering.response, preparedStatementAfterTableAltering2.response)
+	preparedStatementAfterTableAltering3 := inflight.preparedStatment
+	require.Equal(t, preparedStatementAfterTableAltering2.resultMetadataID, preparedStatementAfterTableAltering3.resultMetadataID)
+	require.Equal(t, preparedStatementAfterTableAltering2.response, preparedStatementAfterTableAltering3.response)
 }
